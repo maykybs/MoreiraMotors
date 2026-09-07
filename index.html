@@ -278,6 +278,7 @@ let protectedUnsubs = [];
 function subscribeProtected(){
   protectedUnsubs.push(onSnapshot(collection(db,'vehicles'), snap=>{
     DATA.vehicles = snap.docs.map(d=>({id:d.id, ...d.data()})); render();
+    sincronizarFipeEstoque();
   }, err=>console.error('vehicles:', err)));
   protectedUnsubs.push(onSnapshot(collection(db,'expenses'), snap=>{
     DATA.expenses = snap.docs.map(d=>({id:d.id, ...d.data()})); render();
@@ -358,6 +359,26 @@ function fipeModels(tipo, brandCode){ return fipeGetJson(`${FIPE_BASE}/${fipeTip
 function fipeYears(tipo, brandCode, modelCode){ return fipeGetJson(`${FIPE_BASE}/${fipeTipoPath(tipo)}/brands/${brandCode}/models/${modelCode}/years`); }
 function fipeValue(tipo, brandCode, modelCode, yearCode){ return fipeGetJson(`${FIPE_BASE}/${fipeTipoPath(tipo)}/brands/${brandCode}/models/${modelCode}/years/${yearCode}`); }
 function parseFipePrice(str){ return parseFloat(String(str).replace('R$','').trim().replace(/\./g,'').replace(',','.')) || 0; }
+
+// Mantém o valor FIPE em dia pros veículos em estoque (disponível/manutenção) e nunca mexe
+// nos já vendidos — o valor deles fica congelado no que estava quando a venda aconteceu.
+// Roda uma vez por veículo a cada carregamento do app (evita ficar batendo na API toda hora).
+const fipeSyncFeito = new Set();
+async function sincronizarFipeVeiculo(v){
+  if(fipeSyncFeito.has(v.id)) return;
+  fipeSyncFeito.add(v.id);
+  if(v.status==='vendido') return;
+  if(!v.fipeBrandCode || !v.fipeModelCode || !v.fipeYearCode) return;
+  try{
+    const info = await fipeValue(v.tipo, v.fipeBrandCode, v.fipeModelCode, v.fipeYearCode);
+    const valorFipe = parseFipePrice(info.price);
+    const valorFipeReferencia = info.referenceMonth;
+    if(valorFipe && (valorFipe!==v.valorFipe || valorFipeReferencia!==v.valorFipeReferencia)){
+      await updateDoc(doc(db,'vehicles',v.id), { valorFipe, valorFipeReferencia });
+    }
+  }catch(err){ fipeSyncFeito.delete(v.id); }
+}
+function sincronizarFipeEstoque(){ DATA.vehicles.forEach(v=> sincronizarFipeVeiculo(v)); }
 /* A FIPE não separa "modelo" de "versão" — cada item já vem com o nome completo
    (ex: "Astra Sedan Advantage 2.0 8V Flex 4p Aut."). Pra oferecer os dois campos
    separados sem inventar dados, agrupamos os itens pelo nome-base (ex: "Astra")
@@ -422,6 +443,14 @@ function lucroLiquidoCompartilhadoVeiculo(v){
   const desp = expensesOf(v.id).filter(e=>e.divisao==='dividir').reduce((s,e)=>s+e.valor,0);
   return lucroBrutoVeiculo(v) - desp;
 }
+
+// Valor mínimo e valor sugerido de venda (colunas do Estoque) — fórmula ainda não definida pelo Maycon.
+// Assim que ele passar o cálculo, é só preencher aqui dentro (tem os dados de v.valorCompra,
+// v.valorComissao, v.valorFipe, expensesTotalOf(v.id) disponíveis pra usar na conta).
+function valorMinimoVenda(v){ return null; }
+valorMinimoVenda.pendente = true;
+function valorSugeridoVenda(v){ return null; }
+valorSugeridoVenda.pendente = true;
 function despesasIndividuaisDoSocio(v, userId){
   return expensesOf(v.id).filter(e=>e.divisao==='individual' && e.socioId===userId).reduce((s,e)=>s+e.valor,0);
 }
@@ -726,11 +755,16 @@ function renderEstoque(){
     const dias = diasEmEstoque(v);
     const desp = expensesTotalOf(v.id);
     const lucro = v.status==='vendido' ? lucroLiquidoCompartilhadoVeiculo(v) : null;
+    const vMin = valorMinimoVenda(v);
+    const vSugerido = valorSugeridoVenda(v);
     return `<tr data-id="${v.id}">
       <td data-label="Veículo"><div style="padding-left:6px;"><b>${v.marca||''} ${v.modelo||''}</b><br><span class="sub">${v.anoModelo? v.anoModelo+' · ':''}${v.cor||''} ${v.tipo? '· '+v.tipo:''}</span></div></td>
       <td data-label="Categoria">${v.categoria==='consignacao'? `<span class="pill" style="background:var(--gold-soft);color:var(--gold)">Consignação${v.donoConsignacao? ' · '+v.donoConsignacao:''}</span>` : `<span class="pill" style="background:rgba(255,255,255,0.06);color:var(--ink-soft)">Próprio</span>`}</td>
       <td data-label="Status"><span class="pill" style="background:rgba(255,255,255,0.06);color:${statusColor(v.status)}">${statusLabel(v.status)}</span></td>
       <td data-label="Dias em estoque" class="num" style="${dias!==null && v.status!=='vendido' && dias>=60?'color:var(--red);font-weight:600;':''}">${dias===null?'—':dias+'d'}</td>
+      <td data-label="Valor mínimo" class="num">${vMin!=null? fmt(vMin) : '—'}</td>
+      <td data-label="Valor FIPE" class="num">${v.valorFipe? fmt(v.valorFipe) : '—'}</td>
+      <td data-label="Sugerido p/ venda" class="num">${vSugerido!=null? fmt(vSugerido) : '—'}</td>
       <td data-label="Despesas" class="num">${fmt(desp)}</td>
       <td data-label="Lucro" class="num ${lucro!==null? (lucro>=0?'amount-pos':'amount-neg') : ''}">${lucro!==null? fmt(lucro) : '—'}</td>
       <td><div class="row-actions">
@@ -748,9 +782,10 @@ function renderEstoque(){
   </div>
   <div class="chips">${filtros.map(f=>`<button class="chip ${estoqueFiltro===f.v?'active':''}" data-filtro="${f.v}">${f.label}</button>`).join('')}</div>
   <div class="table-wrap">
-    ${list.length ? `<table class="resp-table"><thead><tr><th>Veículo</th><th>Categoria</th><th>Status</th><th>Dias</th><th>Despesas</th><th>Lucro</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    ${list.length ? `<table class="resp-table"><thead><tr><th>Veículo</th><th>Categoria</th><th>Status</th><th>Dias</th><th>Valor mínimo</th><th>Valor FIPE</th><th>Sugerido p/ venda</th><th>Despesas</th><th>Lucro</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : `<div class="empty-state">Nenhum veículo aqui ainda.</div>`}
   </div>
+  ${(valorMinimoVenda.pendente||valorSugeridoVenda.pendente) ? `<div class="field-hint" style="margin-top:10px;">Colunas "Valor mínimo" e "Sugerido p/ venda" aguardando a fórmula de cálculo — por enquanto aparecem como "—".</div>` : ''}
   `;
 }
 
@@ -1038,14 +1073,12 @@ function veiculoDetalheModal(vehicle){
       <button type="button" class="btn small" id="add-despesa">+ Nova despesa</button>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button type="button" class="btn ghost" id="cancel-modal">Fechar</button>
-        <button type="button" class="btn ghost" id="incrementar-veiculo-btn" style="display:flex;align-items:center;gap:6px;">${plusIcon} Incrementar veículo</button>
         <button type="button" class="btn primary" id="edit-veiculo-btn">Editar veículo</button>
       </div>
     </div>
   `);
   document.getElementById('cancel-modal').onclick = closeModal;
   document.getElementById('edit-veiculo-btn').onclick = ()=> veiculoModal(vehicle);
-  document.getElementById('incrementar-veiculo-btn').onclick = ()=> veiculoIncrementoModal(vehicle);
   document.getElementById('add-despesa').onclick = ()=> despesaModal(vehicle.id, ()=>{ const v=vehicleById(vehicle.id); if(v) veiculoDetalheModal(v); });
   const atualizarBtn = document.getElementById('atualizar-fipe-btn');
   if(atualizarBtn){
@@ -1135,23 +1168,36 @@ function veiculoIncrementoModal(vehicle){
   };
 }
 
+// Um veículo já vendido só pode receber gasto lançado com data até a data da venda
+// (era período em que ele ainda estava em estoque) — depois disso, ele some da lista.
+function veiculoDisponivelParaGasto(v, dataStr){
+  if(v.status!=='vendido') return true;
+  if(!dataStr || !v.dataVenda) return false;
+  return dataStr <= v.dataVenda;
+}
+function despesaVeiculoOptionsHtml(dataStr, vinculoAtual, veiculosOrdenados){
+  return veiculosOrdenados
+    .filter(v=> veiculoDisponivelParaGasto(v, dataStr) || v.id===vinculoAtual)
+    .map(v=>`<option value="${v.id}" ${vinculoAtual===v.id?'selected':''}>${v.marca||''} ${v.modelo||''}${v.status==='vendido'?' (vendido)':''}</option>`).join('');
+}
 function despesaModal(vehicleId, onSaved, expense){
   const isEdit = !!expense;
   const veiculosOrdenados = DATA.vehicles.slice().sort((a,b)=>(b.dataEntrada||'').localeCompare(a.dataEntrada||''));
   const vinculoAtual = isEdit ? (expense.vehicleId||'') : (vehicleId||'');
+  const dataInicial = isEdit?(expense.data||todayStr()):todayStr();
   openModal(`
     <h2>${isEdit?'Editar gasto':'Novo gasto'}</h2>
     <form id="despesa-form">
       <div class="field"><label>Descrição</label><input name="descricao" required placeholder="Ex: Mecânica, DUDA, guincho, peça..." value="${isEdit?(expense.descricao||''):''}"></div>
       <div class="field"><label>Valor</label><input name="valor" inputmode="decimal" required placeholder="0,00" value="${isEdit?String(expense.valor||'').replace('.',','):''}"></div>
-      <div class="field"><label>Data</label><input name="data" type="date" required value="${isEdit?(expense.data||todayStr()):todayStr()}"></div>
+      <div class="field"><label>Data</label><input name="data" type="date" required value="${dataInicial}"></div>
       <div class="field"><label>Vinculado a veículo (opcional)</label>
-        <select name="vehicleId">
+        <select name="vehicleId" id="despesa-vehicle-select">
           <option value="" ${vinculoAtual===''?'selected':''}>Nenhum — gasto geral da empresa</option>
-          ${veiculosOrdenados.map(v=>`<option value="${v.id}" ${vinculoAtual===v.id?'selected':''}>${v.marca||''} ${v.modelo||''}${v.status==='vendido'?' (vendido)':''}</option>`).join('')}
+          ${despesaVeiculoOptionsHtml(dataInicial, vinculoAtual, veiculosOrdenados)}
         </select>
       </div>
-      <div class="field-hint" style="margin:-8px 0 14px;">Se vincular a um veículo, o valor soma no custo dele — quando ele for vendido, o lucro sai do valor de venda menos o custo total (compra + gastos vinculados). Se deixar "Nenhum", entra só no caixa geral da empresa.</div>
+      <div class="field-hint" style="margin:-8px 0 14px;">Se vincular a um veículo, o valor soma no custo dele — quando ele for vendido, o lucro sai do valor de venda menos o custo total (compra + gastos vinculados). Se deixar "Nenhum", entra só no caixa geral da empresa. Veículos já vendidos só aparecem aqui se a data do gasto for até a data da venda (período em que ainda estava em estoque).</div>
       <div class="field"><label>Como dividir</label><select name="divisao" id="despesa-divisao">
         <option value="dividir" ${(!isEdit || expense.divisao==='dividir')?'selected':''}>Dividir entre os sócios</option>
         <option value="individual" ${isEdit && expense.divisao==='individual'?'selected':''}>Responsabilidade de um sócio</option>
@@ -1167,6 +1213,14 @@ function despesaModal(vehicleId, onSaved, expense){
   document.getElementById('cancel-modal').onclick = closeModal;
   const divSel = document.getElementById('despesa-divisao');
   divSel.onchange = ()=> document.getElementById('campo-socio-despesa').classList.toggle('hidden', divSel.value!=='individual');
+  const dataInput = document.querySelector('#despesa-form [name="data"]');
+  const vehicleSelect = document.getElementById('despesa-vehicle-select');
+  dataInput.onchange = ()=>{
+    const dataVal = dataInput.value;
+    const atual = vehicleSelect.value;
+    const aindaValido = atual==='' || veiculoDisponivelParaGasto(vehicleById(atual)||{status:'vendido'}, dataVal);
+    vehicleSelect.innerHTML = `<option value="">Nenhum — gasto geral da empresa</option>` + despesaVeiculoOptionsHtml(dataVal, aindaValido? atual : '', veiculosOrdenados);
+  };
   document.getElementById('despesa-form').onsubmit = async e=>{
     e.preventDefault();
     const fd = new FormData(e.target);
