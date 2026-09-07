@@ -444,13 +444,41 @@ function lucroLiquidoCompartilhadoVeiculo(v){
   return lucroBrutoVeiculo(v) - desp;
 }
 
-// Valor mínimo e valor sugerido de venda (colunas do Estoque) — fórmula ainda não definida pelo Maycon.
-// Assim que ele passar o cálculo, é só preencher aqui dentro (tem os dados de v.valorCompra,
-// v.valorComissao, v.valorFipe, expensesTotalOf(v.id) disponíveis pra usar na conta).
-function valorMinimoVenda(v){ return null; }
-valorMinimoVenda.pendente = true;
-function valorSugeridoVenda(v){ return null; }
-valorSugeridoVenda.pendente = true;
+// Valor mínimo e valor sugerido de venda (colunas do Estoque)
+function custoBaseVeiculo(v){ return v.categoria==='consignacao' ? (v.valorComissao||0) : (v.valorCompra||0); }
+
+// Meses cheios desde a data de entrada (0 = ainda no primeiro mês em estoque)
+function mesesEmEstoque(v){
+  if(!v.dataEntrada) return 0;
+  const entrada = new Date(v.dataEntrada+'T00:00');
+  const hoje = new Date(todayStr()+'T00:00');
+  let meses = (hoje.getFullYear()-entrada.getFullYear())*12 + (hoje.getMonth()-entrada.getMonth());
+  if(hoje.getDate() < entrada.getDate()) meses--;
+  return Math.max(0, meses);
+}
+
+// Preço mínimo: começa em 5% acima do custo no primeiro mês; depois disso, sobe só 1% ao mês
+// (composto) sobre o custo, pra baixar a régua e vender mais rápido sem perder pra inflação.
+function valorMinimoVenda(v){
+  if(v.status==='vendido') return null;
+  const custo = custoBaseVeiculo(v);
+  if(!custo) return null;
+  const meses = mesesEmEstoque(v);
+  const valor = meses<=0 ? custo*1.05 : custo*Math.pow(1.01, meses);
+  return Math.round(valor);
+}
+
+// Preço sugerido: 10% acima do custo, mas nunca acima da FIPE — nesse caso sugerimos a própria
+// FIPE (arredondada), já que não faz sentido pedir mais que o valor de tabela do veículo.
+function valorSugeridoVenda(v){
+  if(v.status==='vendido') return null;
+  const custo = custoBaseVeiculo(v);
+  if(!custo) return null;
+  const comMarkup = custo*1.10;
+  const fipe = v.valorFipe||0;
+  if(fipe && comMarkup > fipe) return Math.round(fipe);
+  return Math.round(comMarkup);
+}
 function despesasIndividuaisDoSocio(v, userId){
   return expensesOf(v.id).filter(e=>e.divisao==='individual' && e.socioId===userId).reduce((s,e)=>s+e.valor,0);
 }
@@ -785,7 +813,6 @@ function renderEstoque(){
     ${list.length ? `<table class="resp-table"><thead><tr><th>Veículo</th><th>Categoria</th><th>Status</th><th>Dias</th><th>Valor mínimo</th><th>Valor FIPE</th><th>Sugerido p/ venda</th><th>Despesas</th><th>Lucro</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : `<div class="empty-state">Nenhum veículo aqui ainda.</div>`}
   </div>
-  ${(valorMinimoVenda.pendente||valorSugeridoVenda.pendente) ? `<div class="field-hint" style="margin-top:10px;">Colunas "Valor mínimo" e "Sugerido p/ venda" aguardando a fórmula de cálculo — por enquanto aparecem como "—".</div>` : ''}
   `;
 }
 
