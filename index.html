@@ -266,7 +266,7 @@ const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${pad2(d
 const daysBetween = (a,b) => Math.round((new Date(b+'T00:00') - new Date(a+'T00:00')) / 86400000);
 
 const PALETTE = ['#D9A441','#4FAE78','#5B8FD9','#D9584C','#B98CD9','#4CB8B0','#D9A441'];
-const APP_VERSION = '2026-09-07.1';
+const APP_VERSION = '2026-09-07.2';
 
 let DATA = { users: [], vehicles: [], expenses: [], capitalEntries: [] };
 let currentUser = null;
@@ -382,6 +382,7 @@ function fipeAgruparModelos(models){
 }
 const userById = id => DATA.users.find(u=>u.id===id);
 const vehicleById = id => DATA.vehicles.find(v=>v.id===id);
+const expenseById = id => DATA.expenses.find(e=>e.id===id);
 function initialOf(name){ return (name||'?').trim()[0]?.toUpperCase() || '?'; }
 function avatarContent(user){ return user && user.photoDataUrl ? `<img src="${user.photoDataUrl}" alt="">` : initialOf(user && user.name); }
 
@@ -1014,6 +1015,7 @@ function veiculoDetalheModal(vehicle){
     <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);">
       <span style="flex:1;">${e.descricao} ${e.divisao==='individual'? '<span class="sub">('+ (userById(e.socioId)?.name||'?') +')</span>' : '<span class="sub">(dividir)</span>'}</span>
       <span class="num">${fmt(e.valor)}</span>
+      ${isAdmin()? `<button class="icon-btn edit-despesa" data-id="${e.id}" title="Editar">${editIcon}</button>` : ''}
       ${isAdmin()? `<button class="icon-btn del-despesa" data-id="${e.id}">${trashIcon}</button>` : ''}
     </div>`).join('') || '<div class="sub" style="padding:8px 0;">Nenhuma despesa lançada.</div>';
 
@@ -1067,6 +1069,11 @@ function veiculoDetalheModal(vehicle){
     if(!confirm('Excluir esta despesa?')) return;
     try{ await deleteDoc(doc(db,'expenses',b.dataset.id)); veiculoDetalheModal(vehicleById(vehicle.id)); }
     catch(err){ alert(traduzErroFirebase(err)); }
+  });
+  document.querySelectorAll('.edit-despesa').forEach(b=> b.onclick = ()=>{
+    if(!requireAdmin()) return;
+    const exp = expenseById(b.dataset.id); if(!exp) return;
+    despesaModal(exp.vehicleId, ()=>{ const v=vehicleById(vehicle.id); if(v) veiculoDetalheModal(v); }, exp);
   });
 }
 
@@ -1128,31 +1135,33 @@ function veiculoIncrementoModal(vehicle){
   };
 }
 
-function despesaModal(vehicleId, onSaved){
+function despesaModal(vehicleId, onSaved, expense){
+  const isEdit = !!expense;
   const veiculosOrdenados = DATA.vehicles.slice().sort((a,b)=>(b.dataEntrada||'').localeCompare(a.dataEntrada||''));
+  const vinculoAtual = isEdit ? (expense.vehicleId||'') : (vehicleId||'');
   openModal(`
-    <h2>Novo gasto</h2>
+    <h2>${isEdit?'Editar gasto':'Novo gasto'}</h2>
     <form id="despesa-form">
-      <div class="field"><label>Descrição</label><input name="descricao" required placeholder="Ex: Mecânica, DUDA, guincho, peça..."></div>
-      <div class="field"><label>Valor</label><input name="valor" inputmode="decimal" required placeholder="0,00"></div>
-      <div class="field"><label>Data</label><input name="data" type="date" required value="${todayStr()}"></div>
+      <div class="field"><label>Descrição</label><input name="descricao" required placeholder="Ex: Mecânica, DUDA, guincho, peça..." value="${isEdit?(expense.descricao||''):''}"></div>
+      <div class="field"><label>Valor</label><input name="valor" inputmode="decimal" required placeholder="0,00" value="${isEdit?String(expense.valor||'').replace('.',','):''}"></div>
+      <div class="field"><label>Data</label><input name="data" type="date" required value="${isEdit?(expense.data||todayStr()):todayStr()}"></div>
       <div class="field"><label>Vinculado a veículo (opcional)</label>
         <select name="vehicleId">
-          <option value="">Nenhum — gasto geral da empresa</option>
-          ${veiculosOrdenados.map(v=>`<option value="${v.id}" ${vehicleId===v.id?'selected':''}>${v.marca||''} ${v.modelo||''}${v.status==='vendido'?' (vendido)':''}</option>`).join('')}
+          <option value="" ${vinculoAtual===''?'selected':''}>Nenhum — gasto geral da empresa</option>
+          ${veiculosOrdenados.map(v=>`<option value="${v.id}" ${vinculoAtual===v.id?'selected':''}>${v.marca||''} ${v.modelo||''}${v.status==='vendido'?' (vendido)':''}</option>`).join('')}
         </select>
       </div>
       <div class="field-hint" style="margin:-8px 0 14px;">Se vincular a um veículo, o valor soma no custo dele — quando ele for vendido, o lucro sai do valor de venda menos o custo total (compra + gastos vinculados). Se deixar "Nenhum", entra só no caixa geral da empresa.</div>
       <div class="field"><label>Como dividir</label><select name="divisao" id="despesa-divisao">
-        <option value="dividir">Dividir entre os sócios</option>
-        <option value="individual">Responsabilidade de um sócio</option>
+        <option value="dividir" ${(!isEdit || expense.divisao==='dividir')?'selected':''}>Dividir entre os sócios</option>
+        <option value="individual" ${isEdit && expense.divisao==='individual'?'selected':''}>Responsabilidade de um sócio</option>
       </select></div>
-      <div class="field hidden" id="campo-socio-despesa"><label>Sócio responsável</label>
-        <select name="socioId">${DATA.users.map(u=>`<option value="${u.id}">${u.name}</option>`).join('')}</select>
+      <div class="field ${isEdit && expense.divisao==='individual'?'':'hidden'}" id="campo-socio-despesa"><label>Sócio responsável</label>
+        <select name="socioId">${DATA.users.map(u=>`<option value="${u.id}" ${isEdit && expense.socioId===u.id?'selected':''}>${u.name}</option>`).join('')}</select>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="cancel-modal">Cancelar</button>
-        <button type="submit" class="btn primary">Lançar</button>
+        <button type="submit" class="btn primary">${isEdit?'Salvar':'Lançar'}</button>
       </div>
     </form>`);
   document.getElementById('cancel-modal').onclick = closeModal;
@@ -1163,7 +1172,8 @@ function despesaModal(vehicleId, onSaved){
     const fd = new FormData(e.target);
     const rec = { vehicleId: fd.get('vehicleId')||null, descricao:fd.get('descricao'), valor:parseMoney(fd.get('valor')), data:fd.get('data'), divisao:fd.get('divisao'), socioId: fd.get('divisao')==='individual'? fd.get('socioId') : null };
     try{
-      await addDoc(collection(db,'expenses'), rec);
+      if(isEdit){ await updateDoc(doc(db,'expenses',expense.id), rec); }
+      else{ await addDoc(collection(db,'expenses'), rec); }
       closeModal();
       if(onSaved) onSaved();
     }catch(err){ alert(traduzErroFirebase(err)); }
@@ -1189,7 +1199,10 @@ function renderDespesas(){
       <td data-label="Veículo">${v? `${v.marca||''} ${v.modelo||''}` : '<span class="sub">Geral (empresa)</span>'}</td>
       <td data-label="Divisão">${e.divisao==='individual'? 'Individual · '+(userById(e.socioId)?.name||'?') : 'Dividir entre sócios'}</td>
       <td data-label="Valor" class="num">${fmt(e.valor)}</td>
-      <td>${isAdmin()? `<button class="icon-btn del-despesa-geral" data-id="${e.id}" title="Excluir">${trashIcon}</button>` : ''}</td>
+      <td style="white-space:nowrap;">
+        ${isAdmin()? `<button class="icon-btn edit-despesa-geral" data-id="${e.id}" title="Editar">${editIcon}</button>` : ''}
+        ${isAdmin()? `<button class="icon-btn del-despesa-geral" data-id="${e.id}" title="Excluir">${trashIcon}</button>` : ''}
+      </td>
     </tr>`;
   }).join('');
 
@@ -1547,6 +1560,11 @@ function attachHandlers(){
   document.querySelectorAll('.del-despesa-geral').forEach(b=> b.onclick = async ()=>{
     if(!requireAdmin()) return; if(!confirm('Excluir este gasto?')) return;
     try{ await deleteDoc(doc(db,'expenses',b.dataset.id)); }catch(err){ alert(traduzErroFirebase(err)); }
+  });
+  document.querySelectorAll('.edit-despesa-geral').forEach(b=> b.onclick = ()=>{
+    if(!requireAdmin()) return;
+    const exp = expenseById(b.dataset.id); if(!exp) return;
+    despesaModal(exp.vehicleId, ()=> render(), exp);
   });
 
   // Sócios
