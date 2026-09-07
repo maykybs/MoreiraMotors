@@ -38,7 +38,8 @@
 body{margin:0;}
 ::selection{background:var(--gold-soft);}
 body, input, select, textarea, button{ font-family:'Inter',system-ui,sans-serif; color:var(--ink); }
-.num{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+.num{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.resp-table th{white-space:nowrap;}
 h1,h2,h3,.display{font-family:'Fraunces',serif;}
 body{background:var(--bg);min-height:100vh;}
 button{cursor:pointer;font:inherit;}
@@ -121,6 +122,7 @@ tr:hover td{background:rgba(255,255,255,0.02);}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow:auto;z-index:50;}
 .overlay.show{display:flex;}
 .modal{background:var(--surface-raised);border:1px solid var(--line);border-radius:var(--radius-lg);padding:26px;width:100%;max-width:480px;box-shadow:0 24px 60px -20px rgba(0,0,0,0.6);}
+.modal.wide{max-width:640px;}
 .modal h2{margin:0 0 16px;font-size:18px;color:#fff;}
 .field{margin-bottom:14px;}
 .field label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:6px;}
@@ -157,6 +159,8 @@ tr:hover td{background:rgba(255,255,255,0.02);}
 
 .icon-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--surface-raised);display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--ink);}
 .row-actions{display:flex;gap:6px;justify-content:flex-end;}
+.veiculo-row-clicavel{cursor:pointer;}
+.veiculo-row-clicavel:hover{background:rgba(255,255,255,0.03);}
 
 .hidden{display:none !important;}
 
@@ -174,6 +178,12 @@ tr:hover td{background:rgba(255,255,255,0.02);}
 .who-avatar img{width:100%;height:100%;object-fit:cover;}
 .avatar-upload-preview{width:72px;height:72px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#111;font-weight:700;font-family:'Fraunces',serif;font-size:26px;margin:0 auto 12px;}
 .avatar-upload-preview img{width:100%;height:100%;object-fit:cover;}
+.foto-upload-box{position:relative;border-radius:12px;background:#1c1c1e;overflow:hidden;cursor:pointer;border:1px solid var(--line);flex:none;}
+.foto-upload-box img{width:100%;height:100%;object-fit:cover;display:block;}
+.foto-upload-box .foto-upload-icon{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);pointer-events:none;}
+.foto-upload-box.has-foto .foto-upload-icon{background:rgba(0,0,0,0.55);color:#fff;opacity:0;transition:opacity .15s;}
+.foto-upload-box.has-foto:hover .foto-upload-icon{opacity:1;}
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
 .who-name{font-size:12px;font-weight:600;text-align:center;line-height:1.2;color:var(--ink);}
 .login-back{background:none;border:none;color:var(--ink-soft);font-size:13px;margin-bottom:10px;padding:0;}
 
@@ -339,6 +349,8 @@ const CORES_VEICULO = ['Branco','Prata','Preto','Cinza','Vermelho','Azul','Verde
 const CORES_HEX = { Branco:'#F2F1EC', Prata:'#B7BCC2', Preto:'#1C1C1E', Cinza:'#8A8F97', Vermelho:'#C0392B', Azul:'#2B6CC4', Verde:'#2F8F4E', Amarelo:'#E8C547', Marrom:'#6B4423', Bege:'#D8C4A0', Dourado:'#C9A227', Vinho:'#6B1F2A', Laranja:'#D9772F', Roxo:'#6B3FA0' };
 function corVeiculoHex(cor){ return CORES_HEX[cor] || '#8A8F97'; }
 const OPCIONAIS_CARRO = ['Ar-condicionado','Direção hidráulica/elétrica','Vidro elétrico','Trava elétrica','Airbag','Freio ABS','Rodas de liga leve','Central multimídia','Câmera de ré','Sensor de estacionamento','Bancos de couro','Teto solar','Piloto automático','Kit gás (GNV)'];
+const CATEGORIAS_DESPESA = ['Mecânica/Manutenção','Documentação','Combustível','Limpeza/Estética','Transporte','Comissão','Alimentação','Outros'];
+function categoriaDespesaLabel(c){ return c && CATEGORIAS_DESPESA.includes(c) ? c : 'Outros'; }
 const OPCIONAIS_MOTO = ['Freio ABS','Partida elétrica','Painel digital','Injeção eletrônica','Alarme','Baú/bagageiro','Protetor de motor','Guidão esportivo','Freio CBS','Pneu novo'];
 function opcionaisPadrao(tipo){ return tipo==='moto' ? OPCIONAIS_MOTO : OPCIONAIS_CARRO; }
 // Renderiza a lista de opcionais como "chips" com checkbox estilizado, e liga o toggle visual.
@@ -367,7 +379,7 @@ const fipeSyncFeito = new Set();
 async function sincronizarFipeVeiculo(v){
   if(fipeSyncFeito.has(v.id)) return;
   fipeSyncFeito.add(v.id);
-  if(v.status==='vendido') return;
+  if(veiculoEncerrado(v)) return;
   if(!v.fipeBrandCode || !v.fipeModelCode || !v.fipeYearCode) return;
   try{
     const info = await fipeValue(v.tipo, v.fipeBrandCode, v.fipeModelCode, v.fipeYearCode);
@@ -434,7 +446,7 @@ function expensesTotalOf(vehicleId){ return expensesOf(vehicleId).reduce((s,e)=>
 
 // Lucro bruto de um veículo vendido: venda - compra (próprio) ou comissão (consignação) — antes de despesas
 function lucroBrutoVeiculo(v){
-  if(v.status!=='vendido') return 0;
+  if(!veiculoEncerrado(v)) return 0;
   if(v.categoria==='consignacao') return (v.valorComissao||0);
   return (v.valorVenda||0) - (v.valorCompra||0);
 }
@@ -446,6 +458,10 @@ function lucroLiquidoCompartilhadoVeiculo(v){
 
 // Valor mínimo e valor sugerido de venda (colunas do Estoque)
 function custoBaseVeiculo(v){ return v.categoria==='consignacao' ? (v.valorComissao||0) : (v.valorCompra||0); }
+// Custo total = valor de compra/comissão + todas as despesas lançadas nesse veículo
+function custoTotalVeiculo(v){ return custoBaseVeiculo(v) + expensesTotalOf(v.id); }
+// Veículo que já saiu do estoque (vendido de verdade OU devolvido/baixa — mau negócio, não conta como venda)
+function veiculoEncerrado(v){ return v.status==='vendido' || v.status==='devolvido'; }
 
 // Meses cheios desde a data de entrada (0 = ainda no primeiro mês em estoque)
 function mesesEmEstoque(v){
@@ -460,7 +476,7 @@ function mesesEmEstoque(v){
 // Preço mínimo: começa em 5% acima do custo no primeiro mês; depois disso, sobe só 1% ao mês
 // (composto) sobre o custo, pra baixar a régua e vender mais rápido sem perder pra inflação.
 function valorMinimoVenda(v){
-  if(v.status==='vendido') return null;
+  if(veiculoEncerrado(v)) return null;
   const custo = custoBaseVeiculo(v);
   if(!custo) return null;
   const meses = mesesEmEstoque(v);
@@ -471,7 +487,7 @@ function valorMinimoVenda(v){
 // Preço sugerido: 10% acima do custo, mas nunca acima da FIPE — nesse caso sugerimos a própria
 // FIPE (arredondada), já que não faz sentido pedir mais que o valor de tabela do veículo.
 function valorSugeridoVenda(v){
-  if(v.status==='vendido') return null;
+  if(veiculoEncerrado(v)) return null;
   const custo = custoBaseVeiculo(v);
   if(!custo) return null;
   const comMarkup = custo*1.10;
@@ -490,7 +506,7 @@ function pctSocioNoVeiculo(v, userId){
 }
 function lucroAcumuladoDoSocio(userId){
   let total = 0;
-  DATA.vehicles.filter(v=>v.status==='vendido').forEach(v=>{
+  DATA.vehicles.filter(veiculoEncerrado).forEach(v=>{
     const liquido = lucroLiquidoCompartilhadoVeiculo(v);
     const parte = liquido * (pctSocioNoVeiculo(v,userId)/100);
     total += parte - despesasIndividuaisDoSocio(v,userId);
@@ -518,19 +534,20 @@ function capitalSocioDoSocio(userId){
   return capitalAportadoDoSocio(userId) + lucroAcumuladoDoSocio(userId) - despesaGeralDoSocio(userId);
 }
 function lucroTotalRealizado(){
-  return DATA.vehicles.filter(v=>v.status==='vendido').reduce((s,v)=>s+lucroLiquidoCompartilhadoVeiculo(v),0);
+  return DATA.vehicles.filter(veiculoEncerrado).reduce((s,v)=>s+lucroLiquidoCompartilhadoVeiculo(v),0);
 }
 // Caixa atual = tudo que entrou (aportes + vendas/comissões) - tudo que saiu (compras de veículo próprio + despesas)
 function caixaAtual(){
   const aportes = DATA.capitalEntries.reduce((s,c)=> s + (c.tipo==='retirada'? -c.valor : c.valor), 0);
-  const receitasVendas = DATA.vehicles.filter(v=>v.status==='vendido').reduce((s,v)=> s + lucroBrutoVeiculo(v) + (v.categoria!=='consignacao'? v.valorCompra||0 : 0), 0);
+  const receitasVendas = DATA.vehicles.filter(veiculoEncerrado).reduce((s,v)=> s + lucroBrutoVeiculo(v) + (v.categoria!=='consignacao'? v.valorCompra||0 : 0), 0);
   // receitasVendas acima = (venda - compra) + compra = venda, para próprio; = comissão, para consignação. Simplifica pra: valor recebido de fato.
+  // Devolução (status 'devolvido') entra igual venda aqui — o dinheiro da compra voltou, só não foi um negócio de verdade.
   const comprasVeiculos = DATA.vehicles.filter(v=>v.categoria!=='consignacao').reduce((s,v)=>s+(v.valorCompra||0),0);
   const despesasTotais = DATA.expenses.reduce((s,e)=>s+e.valor,0);
   return aportes + receitasVendas - comprasVeiculos - despesasTotais;
 }
 function diasEmEstoque(v){
-  const fim = v.status==='vendido' ? v.dataVenda : todayStr();
+  const fim = veiculoEncerrado(v) ? v.dataVenda : todayStr();
   if(!v.dataEntrada || !fim) return null;
   return daysBetween(v.dataEntrada, fim);
 }
@@ -539,6 +556,19 @@ const trashIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" s
 const editIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
 const plusIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>';
 const logoutIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>';
+const landscapeIcon = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5.5-5.5-4 4-2.5-2.5L3 17.5"/></svg>';
+// Ícone combinado (paisagem + lápis) pro botão de adicionar/editar foto — substitui o <input type=file> feio.
+function fotoUploadIconHtml(){
+  return `<span style="position:relative;display:inline-flex;">${landscapeIcon}<span style="position:absolute;top:-6px;right:-9px;width:16px;height:16px;border-radius:50%;background:var(--gold);color:#1A1305;display:flex;align-items:center;justify-content:center;">${editIcon.replace('width="14" height="14"','width="9" height="9"')}</span></span>`;
+}
+// Caixa clicável de foto: mostra o ícone sempre que não tem foto; se já tem foto, o ícone só aparece no hover.
+function fotoUploadBoxHtml(id, fotoDataUrl, size){
+  size = size || 96;
+  return `<div class="foto-upload-box${fotoDataUrl?' has-foto':''}" id="${id}" style="width:${size}px;height:${size}px;">
+    ${fotoDataUrl? `<img src="${fotoDataUrl}" alt="">` : ''}
+    <div class="foto-upload-icon">${fotoUploadIconHtml()}</div>
+  </div>`;
+}
 
 const LOGO_DATA_URI = "data:image/png;base64,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";
 function brandMark(size){
@@ -588,8 +618,8 @@ let configMenuOpen = false;
 ============================================================ */
 const overlay = document.getElementById('overlay');
 const modalContent = document.getElementById('modal-content');
-function openModal(html){ modalContent.innerHTML = html; overlay.classList.add('show'); }
-function closeModal(){ overlay.classList.remove('show'); modalContent.innerHTML=''; }
+function openModal(html, wide){ modalContent.innerHTML = html; modalContent.classList.toggle('wide', !!wide); overlay.classList.add('show'); }
+function closeModal(){ overlay.classList.remove('show'); modalContent.innerHTML=''; modalContent.classList.remove('wide'); }
 overlay.addEventListener('click', e=>{ if(e.target===overlay) closeModal(); });
 
 /* ============================================================
@@ -711,7 +741,7 @@ function podeVerFinanceiroPainel(){
 function renderDashboard(){
   const caixa = caixaAtual();
   const lucro = lucroTotalRealizado();
-  const emEstoque = DATA.vehicles.filter(v=>v.status!=='vendido');
+  const emEstoque = DATA.vehicles.filter(v=>v.status==='disponivel'||v.status==='manutencao');
   const parados = emEstoque.map(v=>({v, dias:diasEmEstoque(v)})).filter(x=>x.dias!==null && x.dias>=60).sort((a,b)=>b.dias-a.dias);
   const verFinanceiro = podeVerFinanceiroPainel();
 
@@ -768,35 +798,32 @@ function renderDashboard(){
 /* ============================================================
    ESTOQUE
 ============================================================ */
-function statusLabel(s){ return {disponivel:'Disponível', manutencao:'Manutenção', vendido:'Vendido'}[s] || s; }
-function statusColor(s){ return {disponivel:'var(--green)', manutencao:'var(--gold)', vendido:'var(--ink-soft)'}[s] || 'var(--ink-soft)'; }
+function statusLabel(s){ return {disponivel:'Disponível', manutencao:'Manutenção', vendido:'Vendido', devolvido:'Devolvido'}[s] || s; }
+function statusColor(s){ return {disponivel:'var(--green)', manutencao:'var(--gold)', vendido:'var(--ink-soft)', devolvido:'var(--red)'}[s] || 'var(--ink-soft)'; }
 
 function renderEstoque(){
   const filtros = [
     {v:'todos', label:'Todos'}, {v:'disponivel', label:'Disponível'},
-    {v:'manutencao', label:'Manutenção'}, {v:'vendido', label:'Vendido'}
+    {v:'manutencao', label:'Manutenção'}, {v:'vendido', label:'Vendido'}, {v:'devolvido', label:'Devolvido'}
   ];
   let list = DATA.vehicles.slice().sort((a,b)=> (b.dataEntrada||'').localeCompare(a.dataEntrada||''));
   if(estoqueFiltro!=='todos') list = list.filter(v=>v.status===estoqueFiltro);
 
   const rows = list.map(v=>{
-    const dias = diasEmEstoque(v);
-    const desp = expensesTotalOf(v.id);
-    const lucro = v.status==='vendido' ? lucroLiquidoCompartilhadoVeiculo(v) : null;
+    const custoTotal = custoTotalVeiculo(v);
+    const lucro = veiculoEncerrado(v) ? lucroLiquidoCompartilhadoVeiculo(v) : null;
     const vMin = valorMinimoVenda(v);
     const vSugerido = valorSugeridoVenda(v);
-    return `<tr data-id="${v.id}">
-      <td data-label="Veículo"><div style="padding-left:6px;"><b>${v.marca||''} ${v.modelo||''}</b><br><span class="sub">${v.anoModelo? v.anoModelo+' · ':''}${v.cor||''} ${v.tipo? '· '+v.tipo:''}</span></div></td>
-      <td data-label="Categoria">${v.categoria==='consignacao'? `<span class="pill" style="background:var(--gold-soft);color:var(--gold)">Consignação${v.donoConsignacao? ' · '+v.donoConsignacao:''}</span>` : `<span class="pill" style="background:rgba(255,255,255,0.06);color:var(--ink-soft)">Próprio</span>`}</td>
+    return `<tr data-id="${v.id}" class="veiculo-row-clicavel">
+      <td data-label="Veículo"><div style="padding-left:6px;"><b>${v.marca||''} ${v.modelo||''}</b></div></td>
       <td data-label="Status"><span class="pill" style="background:rgba(255,255,255,0.06);color:${statusColor(v.status)}">${statusLabel(v.status)}</span></td>
-      <td data-label="Dias em estoque" class="num" style="${dias!==null && v.status!=='vendido' && dias>=60?'color:var(--red);font-weight:600;':''}">${dias===null?'—':dias+'d'}</td>
       <td data-label="Valor mínimo" class="num">${vMin!=null? fmt(vMin) : '—'}</td>
-      <td data-label="Valor FIPE" class="num">${v.valorFipe? fmt(v.valorFipe) : '—'}</td>
       <td data-label="Sugerido p/ venda" class="num">${vSugerido!=null? fmt(vSugerido) : '—'}</td>
-      <td data-label="Despesas" class="num">${fmt(desp)}</td>
+      <td data-label="Custo total" class="num">${fmt(custoTotal)}</td>
+      <td data-label="Valor da venda" class="num">${veiculoEncerrado(v)? fmt(v.valorVenda||0) : '—'}</td>
       <td data-label="Lucro" class="num ${lucro!==null? (lucro>=0?'amount-pos':'amount-neg') : ''}">${lucro!==null? fmt(lucro) : '—'}</td>
       <td><div class="row-actions">
-        <button class="icon-btn ver-veiculo" data-id="${v.id}" title="Ver / despesas">${editIcon}</button>
+        <button class="icon-btn ver-veiculo" data-id="${v.id}" title="Ver detalhes">${editIcon}</button>
         <button class="icon-btn incrementar-veiculo" data-id="${v.id}" title="Incrementar (foto/opcionais)">${plusIcon}</button>
         ${isAdmin()? `<button class="icon-btn del-veiculo" data-id="${v.id}" title="Excluir">${trashIcon}</button>` : ''}
       </div></td>
@@ -810,7 +837,7 @@ function renderEstoque(){
   </div>
   <div class="chips">${filtros.map(f=>`<button class="chip ${estoqueFiltro===f.v?'active':''}" data-filtro="${f.v}">${f.label}</button>`).join('')}</div>
   <div class="table-wrap">
-    ${list.length ? `<table class="resp-table"><thead><tr><th>Veículo</th><th>Categoria</th><th>Status</th><th>Dias</th><th>Valor mínimo</th><th>Valor FIPE</th><th>Sugerido p/ venda</th><th>Despesas</th><th>Lucro</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    ${list.length ? `<table class="resp-table"><thead><tr><th>Veículo</th><th>Status</th><th>Valor mínimo</th><th>Sugerido p/ venda</th><th>Custo total</th><th>Valor da venda</th><th>Lucro</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : `<div class="empty-state">Nenhum veículo aqui ainda.</div>`}
   </div>
   `;
@@ -894,13 +921,14 @@ function veiculoModal(vehicle){
         <option value="disponivel" ${vehicle.status==='disponivel'?'selected':''}>Disponível</option>
         <option value="manutencao" ${vehicle.status==='manutencao'?'selected':''}>Manutenção</option>
         <option value="vendido" ${vehicle.status==='vendido'?'selected':''}>Vendido</option>
+        <option value="devolvido" ${vehicle.status==='devolvido'?'selected':''}>Devolvido / mau negócio (não conta como venda)</option>
       </select></div>
-      <div id="campos-venda" style="${vehicle.status==='vendido'?'':'display:none;'}">
+      <div id="campos-venda" style="${veiculoEncerrado(vehicle)?'':'display:none;'}">
         <div class="field-row">
           <div class="field"><label>Valor de venda</label><input name="valorVenda" inputmode="decimal" value="${vehicle.valorVenda||''}" placeholder="0,00"></div>
           <div class="field"><label>Data da venda</label><input name="dataVenda" type="date" value="${vehicle.dataVenda||todayStr()}"></div>
         </div>
-        <div class="field-hint">A divisão do lucro entre sócios usa o padrão (igual entre todos) — dá pra ajustar depois, se precisar, direto no Firestore por enquanto.</div>
+        <div class="field-hint">A divisão do lucro entre sócios usa o padrão (igual entre todos) — dá pra ajustar depois, se precisar, direto no Firestore por enquanto. Se o status for "Devolvido", esses valores continuam entrando na conta do lucro/prejuízo, só não aparecem como venda no Painel.</div>
       </div>
       <div class="field"><label>Observações</label><textarea name="obs" rows="2">${vehicle.obs||''}</textarea></div>
       ${!isEdit? `<div class="field-hint">Depois de cadastrar, você pode adicionar foto e opcionais direto na ficha do veículo, no botão "Incrementar veículo".</div>` : ''}
@@ -920,7 +948,7 @@ function veiculoModal(vehicle){
     document.getElementById('campo-comissao').style.display = cons? '':'none';
   };
   const statusSel = document.querySelector('select[name=status]');
-  statusSel.onchange = ()=>{ document.getElementById('campos-venda').style.display = statusSel.value==='vendido' ? '' : 'none'; };
+  statusSel.onchange = ()=>{ document.getElementById('campos-venda').style.display = (statusSel.value==='vendido'||statusSel.value==='devolvido') ? '' : 'none'; };
 
   const corSelect = document.getElementById('veiculo-cor-select');
   const corOutra = document.getElementById('veiculo-cor-outra');
@@ -1071,31 +1099,76 @@ function veiculoModal(vehicle){
   };
 }
 
+// Uma linha "rótulo: valor" da ficha de detalhe — pula sozinha se o valor for vazio.
+function campoInfo(label, value){
+  if(value===null || value===undefined || value==='') return '';
+  return `<div style="display:flex;justify-content:space-between;gap:14px;padding:7px 0;border-top:1px solid var(--line);"><span class="sub">${label}</span><span style="text-align:right;">${value}</span></div>`;
+}
+function despesaLinhaHtml(e){
+  return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);">
+    <span style="flex:1;">${e.descricao} ${e.divisao==='individual'? '<span class="sub">('+ (userById(e.socioId)?.name||'?') +')</span>' : '<span class="sub">(dividir)</span>'}</span>
+    <span class="num">${fmt(e.valor)}</span>
+    ${isAdmin()? `<button class="icon-btn edit-despesa" data-id="${e.id}" title="Editar">${editIcon}</button>` : ''}
+    ${isAdmin()? `<button class="icon-btn del-despesa" data-id="${e.id}">${trashIcon}</button>` : ''}
+  </div>`;
+}
+
 function veiculoDetalheModal(vehicle){
   const desp = expensesOf(vehicle.id);
-  const despRows = desp.map(e=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);">
-      <span style="flex:1;">${e.descricao} ${e.divisao==='individual'? '<span class="sub">('+ (userById(e.socioId)?.name||'?') +')</span>' : '<span class="sub">(dividir)</span>'}</span>
-      <span class="num">${fmt(e.valor)}</span>
-      ${isAdmin()? `<button class="icon-btn edit-despesa" data-id="${e.id}" title="Editar">${editIcon}</button>` : ''}
-      ${isAdmin()? `<button class="icon-btn del-despesa" data-id="${e.id}">${trashIcon}</button>` : ''}
-    </div>`).join('') || '<div class="sub" style="padding:8px 0;">Nenhuma despesa lançada.</div>';
+  const encerrado = veiculoEncerrado(vehicle);
+  const dias = diasEmEstoque(vehicle);
+  const lucro = encerrado ? lucroLiquidoCompartilhadoVeiculo(vehicle) : null;
+  const vMin = valorMinimoVenda(vehicle);
+  const vSugerido = valorSugeridoVenda(vehicle);
 
-  const opcionaisHtml = (vehicle.opcionais && vehicle.opcionais.length) ? `<div class="opcionais-tags" style="margin-bottom:14px;">${vehicle.opcionais.map(o=>`<span class="pill">${o}</span>`).join('')}</div>` : '';
+  const categoriasComDesp = CATEGORIAS_DESPESA.filter(c=> desp.some(e=>categoriaDespesaLabel(e.categoria)===c));
+  const despPorCategoriaHtml = desp.length ? categoriasComDesp.map(cat=>{
+    const itens = desp.filter(e=>categoriaDespesaLabel(e.categoria)===cat);
+    const subtotal = itens.reduce((s,e)=>s+e.valor,0);
+    return `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;">
+        <span class="sub" style="font-weight:600;text-transform:uppercase;letter-spacing:.3px;font-size:11px;">${cat}</span>
+        <span class="num sub">${fmt(subtotal)}</span>
+      </div>
+      ${itens.map(despesaLinhaHtml).join('')}
+    </div>`;
+  }).join('') : '<div class="sub" style="padding:8px 0;">Nenhuma despesa lançada.</div>';
+
+  const opcionaisHtml = (vehicle.opcionais && vehicle.opcionais.length) ? `<div class="opcionais-tags" style="margin:6px 0 14px;">${vehicle.opcionais.map(o=>`<span class="pill">${o}</span>`).join('')}</div>` : '';
+
+  const infoHtml = [
+    campoInfo('Versão', vehicle.versao),
+    campoInfo('Ano', vehicle.anoModelo),
+    campoInfo('Cor', vehicle.cor),
+    campoInfo('Tipo', vehicle.tipo==='moto'?'Moto':'Carro'),
+    campoInfo('Placa', vehicle.placa),
+    campoInfo('Categoria', vehicle.categoria==='consignacao'? `Consignação · ${vehicle.donoConsignacao||'—'}` : 'Próprio'),
+    campoInfo('Data de entrada', vehicle.dataEntrada? new Date(vehicle.dataEntrada+'T00:00').toLocaleDateString('pt-BR') : null),
+    campoInfo(encerrado?'Dias até sair do estoque':'Dias em estoque', dias!==null? dias+'d' : null),
+    campoInfo(vehicle.categoria==='consignacao'?'Comissão combinada':'Valor de compra', custoBaseVeiculo(vehicle)? fmt(custoBaseVeiculo(vehicle)) : null),
+    campoInfo('Despesas lançadas', desp.length? fmt(expensesTotalOf(vehicle.id)) : null),
+    campoInfo('Custo total', fmt(custoTotalVeiculo(vehicle))),
+    campoInfo('Valor mínimo', vMin!=null? fmt(vMin) : null),
+    campoInfo('Sugerido p/ venda', vSugerido!=null? fmt(vSugerido) : null),
+    encerrado? campoInfo('Valor de venda', fmt(vehicle.valorVenda||0)) : '',
+    encerrado? campoInfo('Data da venda', vehicle.dataVenda? new Date(vehicle.dataVenda+'T00:00').toLocaleDateString('pt-BR') : '—') : '',
+    encerrado? campoInfo('Lucro líquido', `<b class="num ${lucro>=0?'amount-pos':'amount-neg'}">${fmt(lucro)}</b>`) : '',
+    campoInfo('Observações', vehicle.obs),
+  ].join('');
 
   openModal(`
-    <div style="display:flex;gap:12px;align-items:center;margin-bottom:4px;">
-      ${vehicle.fotoDataUrl? `<img src="${vehicle.fotoDataUrl}" style="width:56px;height:56px;object-fit:cover;border-radius:10px;flex:none;">` : ''}
-      <h2 style="margin:0;">${vehicle.marca} ${vehicle.modelo}</h2>
-    </div>
-    <div class="sub" style="margin-bottom:6px;">${vehicle.anoModelo? vehicle.anoModelo+' · ':''}${vehicle.cor||''} · ${vehicle.categoria==='consignacao'?'Consignação · '+(vehicle.donoConsignacao||''):'Próprio'} · entrada em ${vehicle.dataEntrada?new Date(vehicle.dataEntrada+'T00:00').toLocaleDateString('pt-BR'):'—'}</div>
+    ${vehicle.fotoDataUrl? `<img src="${vehicle.fotoDataUrl}" style="width:100%;max-height:280px;object-fit:cover;border-radius:12px;margin-bottom:14px;">` : ''}
+    <h2 style="margin:0 0 2px;">${vehicle.marca||''} ${vehicle.modelo||''}</h2>
+    <div class="sub" style="margin-bottom:10px;">${statusLabel(vehicle.status)}</div>
+    <div style="margin-bottom:14px;">${infoHtml}</div>
     <div class="field-hint" id="fipe-detalhe-preview" style="margin:0 0 14px;">
       ${vehicle.valorFipe? `Valor de referência FIPE: <b class="num">${fmt(vehicle.valorFipe)}</b> <span class="sub">(tabela de ${vehicle.valorFipeReferencia||'—'})</span>` : '<span class="sub">Sem valor FIPE salvo para este veículo.</span>'}
-      ${vehicle.fipeBrandCode && vehicle.fipeModelCode && vehicle.fipeYearCode ? ` <button type="button" class="btn small" id="atualizar-fipe-btn" style="margin-left:8px;">Atualizar valor FIPE</button>` : ''}
+      ${(!encerrado && vehicle.fipeBrandCode && vehicle.fipeModelCode && vehicle.fipeYearCode) ? ` <button type="button" class="btn small" id="atualizar-fipe-btn" style="margin-left:8px;">Atualizar valor FIPE</button>` : ''}
+      ${encerrado && vehicle.valorFipe? ` <span class="sub">(congelada — veículo já saiu do estoque)</span>` : ''}
     </div>
     ${opcionaisHtml}
     <div class="section-title" style="margin-top:0;font-size:14px;">Despesas <span class="count">${desp.length}</span></div>
-    ${despRows}
+    ${despPorCategoriaHtml}
     <div class="modal-actions" style="justify-content:space-between;flex-wrap:wrap;">
       <button type="button" class="btn small" id="add-despesa">+ Nova despesa</button>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -1103,7 +1176,7 @@ function veiculoDetalheModal(vehicle){
         <button type="button" class="btn primary" id="edit-veiculo-btn">Editar veículo</button>
       </div>
     </div>
-  `);
+  `, true);
   document.getElementById('cancel-modal').onclick = closeModal;
   document.getElementById('edit-veiculo-btn').onclick = ()=> veiculoModal(vehicle);
   document.getElementById('add-despesa').onclick = ()=> despesaModal(vehicle.id, ()=>{ const v=vehicleById(vehicle.id); if(v) veiculoDetalheModal(v); });
@@ -1148,10 +1221,10 @@ function veiculoIncrementoModal(vehicle){
     <div class="field">
       <label>Foto do veículo (capa)</label>
       <div style="display:flex;align-items:center;gap:12px;">
-        <div class="avatar-upload-preview" id="incremento-foto-preview" style="width:72px;height:72px;border-radius:10px;background:#1c1c1e;">${pendingFoto? `<img src="${pendingFoto}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;">` : ''}</div>
+        ${fotoUploadBoxHtml('incremento-foto-box', pendingFoto)}
         <div>
-          <input type="file" accept="image/*" id="incremento-foto-input">
-          ${pendingFoto? `<button type="button" class="btn ghost small" id="incremento-remover-foto" style="margin-top:6px;">Remover foto</button>` : ''}
+          <input type="file" accept="image/*" id="incremento-foto-input" class="visually-hidden">
+          <button type="button" class="btn ghost small" id="incremento-remover-foto" style="${pendingFoto?'':'display:none;'}">Remover foto</button>
         </div>
       </div>
     </div>
@@ -1168,16 +1241,24 @@ function veiculoIncrementoModal(vehicle){
   document.getElementById('cancel-modal').onclick = closeModal;
 
   const fotoInput = document.getElementById('incremento-foto-input');
-  const fotoPreview = document.getElementById('incremento-foto-preview');
+  const fotoBox = document.getElementById('incremento-foto-box');
+  const removerFotoBtn = document.getElementById('incremento-remover-foto');
+  fotoBox.onclick = ()=> fotoInput.click();
   fotoInput.onchange = async ()=>{
     const file = fotoInput.files[0]; if(!file) return;
     try{
       pendingFoto = await resizeImageFile(file, 480);
-      fotoPreview.innerHTML = `<img src="${pendingFoto}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;">`;
+      fotoBox.classList.add('has-foto');
+      fotoBox.innerHTML = `<img src="${pendingFoto}" alt=""><div class="foto-upload-icon">${fotoUploadIconHtml()}</div>`;
+      removerFotoBtn.style.display = '';
     }catch(err){ alert('Não consegui carregar essa imagem.'); }
   };
-  const removerFotoBtn = document.getElementById('incremento-remover-foto');
-  if(removerFotoBtn) removerFotoBtn.onclick = ()=>{ pendingFoto=''; fotoPreview.innerHTML=''; removerFotoBtn.remove(); };
+  removerFotoBtn.onclick = ()=>{
+    pendingFoto='';
+    fotoBox.classList.remove('has-foto');
+    fotoBox.innerHTML = `<div class="foto-upload-icon">${fotoUploadIconHtml()}</div>`;
+    removerFotoBtn.style.display = 'none';
+  };
 
   const opcionaisList = document.getElementById('incremento-opcionais-list');
   renderOpcionaisChips(opcionaisList, opcionaisPadrao(vehicle.tipo), selecionados);
@@ -1198,14 +1279,15 @@ function veiculoIncrementoModal(vehicle){
 // Um veículo já vendido só pode receber gasto lançado com data até a data da venda
 // (era período em que ele ainda estava em estoque) — depois disso, ele some da lista.
 function veiculoDisponivelParaGasto(v, dataStr){
-  if(v.status!=='vendido') return true;
+  if(!veiculoEncerrado(v)) return true;
   if(!dataStr || !v.dataVenda) return false;
   return dataStr <= v.dataVenda;
 }
+function statusSufixoOpcao(v){ return v.status==='vendido'?' (vendido)': v.status==='devolvido'?' (devolvido)':''; }
 function despesaVeiculoOptionsHtml(dataStr, vinculoAtual, veiculosOrdenados){
   return veiculosOrdenados
     .filter(v=> veiculoDisponivelParaGasto(v, dataStr) || v.id===vinculoAtual)
-    .map(v=>`<option value="${v.id}" ${vinculoAtual===v.id?'selected':''}>${v.marca||''} ${v.modelo||''}${v.status==='vendido'?' (vendido)':''}</option>`).join('');
+    .map(v=>`<option value="${v.id}" ${vinculoAtual===v.id?'selected':''}>${v.marca||''} ${v.modelo||''}${statusSufixoOpcao(v)}</option>`).join('');
 }
 function despesaModal(vehicleId, onSaved, expense){
   const isEdit = !!expense;
@@ -1216,6 +1298,7 @@ function despesaModal(vehicleId, onSaved, expense){
     <h2>${isEdit?'Editar gasto':'Novo gasto'}</h2>
     <form id="despesa-form">
       <div class="field"><label>Descrição</label><input name="descricao" required placeholder="Ex: Mecânica, DUDA, guincho, peça..." value="${isEdit?(expense.descricao||''):''}"></div>
+      <div class="field"><label>Categoria</label><select name="categoria">${CATEGORIAS_DESPESA.map(c=>`<option value="${c}" ${categoriaDespesaLabel(isEdit?expense.categoria:'')===c?'selected':''}>${c}</option>`).join('')}</select></div>
       <div class="field"><label>Valor</label><input name="valor" inputmode="decimal" required placeholder="0,00" value="${isEdit?String(expense.valor||'').replace('.',','):''}"></div>
       <div class="field"><label>Data</label><input name="data" type="date" required value="${dataInicial}"></div>
       <div class="field"><label>Vinculado a veículo (opcional)</label>
@@ -1251,7 +1334,7 @@ function despesaModal(vehicleId, onSaved, expense){
   document.getElementById('despesa-form').onsubmit = async e=>{
     e.preventDefault();
     const fd = new FormData(e.target);
-    const rec = { vehicleId: fd.get('vehicleId')||null, descricao:fd.get('descricao'), valor:parseMoney(fd.get('valor')), data:fd.get('data'), divisao:fd.get('divisao'), socioId: fd.get('divisao')==='individual'? fd.get('socioId') : null };
+    const rec = { vehicleId: fd.get('vehicleId')||null, descricao:fd.get('descricao'), categoria:fd.get('categoria'), valor:parseMoney(fd.get('valor')), data:fd.get('data'), divisao:fd.get('divisao'), socioId: fd.get('divisao')==='individual'? fd.get('socioId') : null };
     try{
       if(isEdit){ await updateDoc(doc(db,'expenses',expense.id), rec); }
       else{ await addDoc(collection(db,'expenses'), rec); }
@@ -1277,6 +1360,7 @@ function renderDespesas(){
     return `<tr>
       <td data-label="Data">${e.data? new Date(e.data+'T00:00').toLocaleDateString('pt-BR'):'—'}</td>
       <td data-label="Descrição">${e.descricao}</td>
+      <td data-label="Categoria"><span class="pill" style="background:rgba(255,255,255,0.06);color:var(--ink-soft)">${categoriaDespesaLabel(e.categoria)}</span></td>
       <td data-label="Veículo">${v? `${v.marca||''} ${v.modelo||''}` : '<span class="sub">Geral (empresa)</span>'}</td>
       <td data-label="Divisão">${e.divisao==='individual'? 'Individual · '+(userById(e.socioId)?.name||'?') : 'Dividir entre sócios'}</td>
       <td data-label="Valor" class="num">${fmt(e.valor)}</td>
@@ -1297,11 +1381,11 @@ function renderDespesas(){
     <select id="despesas-filtro-veiculo">
       <option value="todos" ${despesasFiltroVeiculo==='todos'?'selected':''}>Todos os gastos</option>
       <option value="geral" ${despesasFiltroVeiculo==='geral'?'selected':''}>Só gerais (sem veículo)</option>
-      ${veiculosOrdenados.map(v=>`<option value="${v.id}" ${despesasFiltroVeiculo===v.id?'selected':''}>${v.marca||''} ${v.modelo||''}${v.status==='vendido'?' (vendido)':''}</option>`).join('')}
+      ${veiculosOrdenados.map(v=>`<option value="${v.id}" ${despesasFiltroVeiculo===v.id?'selected':''}>${v.marca||''} ${v.modelo||''}${statusSufixoOpcao(v)}</option>`).join('')}
     </select>
   </div>
   <div class="table-wrap">
-    ${list.length ? `<table class="resp-table"><thead><tr><th>Data</th><th>Descrição</th><th>Veículo</th><th>Divisão</th><th>Valor</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    ${list.length ? `<table class="resp-table"><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Veículo</th><th>Divisão</th><th>Valor</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : `<div class="empty-state">Nenhum gasto lançado ainda.</div>`}
   </div>
   <div class="field-hint" style="margin-top:14px;">Total ${despesasFiltroVeiculo==='todos'?'de todos os gastos':'no filtro atual'}: <b class="num">${fmt(total)}</b>. Gastos vinculados a um veículo entram no custo dele — quando ele for vendido, o lucro já sai descontando esses gastos.</div>
@@ -1619,6 +1703,11 @@ function attachHandlers(){
   document.querySelectorAll('.ver-veiculo').forEach(b=> b.onclick = ()=> veiculoDetalheModal(vehicleById(b.dataset.id)));
   document.querySelectorAll('.incrementar-veiculo').forEach(b=> b.onclick = ()=> veiculoIncrementoModal(vehicleById(b.dataset.id)));
   document.querySelectorAll('.veiculo-card-mini').forEach(b=> b.onclick = ()=> veiculoDetalheModal(vehicleById(b.dataset.id)));
+  // Clicar em qualquer lugar da linha (fora dos botões de ação) abre o detalhe do veículo
+  document.querySelectorAll('.veiculo-row-clicavel').forEach(tr=> tr.onclick = (e)=>{
+    if(e.target.closest('button')) return;
+    veiculoDetalheModal(vehicleById(tr.dataset.id));
+  });
   document.querySelectorAll('.del-veiculo').forEach(b=> b.onclick = async ()=>{
     if(!requireAdmin()) return; if(!confirm('Excluir este veículo e suas despesas associadas?')) return;
     try{
