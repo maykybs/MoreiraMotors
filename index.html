@@ -266,7 +266,7 @@ const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${pad2(d
 const daysBetween = (a,b) => Math.round((new Date(b+'T00:00') - new Date(a+'T00:00')) / 86400000);
 
 const PALETTE = ['#D9A441','#4FAE78','#5B8FD9','#D9584C','#B98CD9','#4CB8B0','#D9A441'];
-const APP_VERSION = '2026-09-05.1';
+const APP_VERSION = '2026-09-07.1';
 
 let DATA = { users: [], vehicles: [], expenses: [], capitalEntries: [] };
 let currentUser = null;
@@ -1497,7 +1497,11 @@ function renderBackup(){
 }
 async function restoreCollection(name, list){
   const batch = writeBatch(db);
-  list.forEach(item=>{ const {id, ...rest} = item; batch.set(doc(db,name, id || undefined), rest); });
+  list.forEach(item=>{
+    const {id, ...rest} = item;
+    const ref = id ? doc(db,name,id) : doc(collection(db,name));
+    batch.set(ref, rest);
+  });
   await batch.commit();
 }
 

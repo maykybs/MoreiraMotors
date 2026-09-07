@@ -1,0 +1,7 @@
+# Mesma lógica do .gitignore: só o que o Firebase Hosting precisa publicar.
+# Isso evita publicar a pasta inteira do Drive (planilhas, fotos, outras pastas)
+# caso alguém rode "firebase deploy" sem querer a partir dessa pasta.
+firebase.json
+**/.*
+/*
+!/index.html

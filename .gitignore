@@ -1,0 +1,10 @@
+# Só o que o sistema precisa vai pro GitHub — o resto da pasta (planilhas, fotos,
+# outras pastas do Drive) fica de fora, mesmo se alguém rodar "git add ." por engano.
+/*
+!/index.html
+!/subir-github.bat
+!/.gitignore
+!/.firebaseignore
+!/firebase.json
+!/.firebaserc
+!/.github
