@@ -477,7 +477,7 @@ function mesesEmEstoque(v){
 // (composto) sobre o custo, pra baixar a régua e vender mais rápido sem perder pra inflação.
 function valorMinimoVenda(v){
   if(veiculoEncerrado(v)) return null;
-  const custo = custoBaseVeiculo(v);
+  const custo = custoTotalVeiculo(v);
   if(!custo) return null;
   const meses = mesesEmEstoque(v);
   const valor = meses<=0 ? custo*1.05 : custo*Math.pow(1.01, meses);
@@ -488,7 +488,7 @@ function valorMinimoVenda(v){
 // FIPE (arredondada), já que não faz sentido pedir mais que o valor de tabela do veículo.
 function valorSugeridoVenda(v){
   if(veiculoEncerrado(v)) return null;
-  const custo = custoBaseVeiculo(v);
+  const custo = custoTotalVeiculo(v);
   if(!custo) return null;
   const comMarkup = custo*1.10;
   const fipe = v.valorFipe||0;
